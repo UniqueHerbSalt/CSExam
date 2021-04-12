@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Management;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,7 +13,7 @@ namespace GetProcessList
         static void Main(string[] args)
         {
             #region WInAPIMarshal을 이용한 방식
-            var p = new ProcessWINAPIMarshal();
+            var p = new ProcessWMI();
             //p.Privilege_Up();
             foreach (var info in p.GetProcessList())
             {
@@ -23,7 +24,7 @@ namespace GetProcessList
             var a = p.GetProcessList();
 
 
-            Console.WriteLine(a.Where(pp => pp.ProcessNameWithExtension.IndexOf("winlogon.exe") != -1).Count());
+            //Console.WriteLine(a.Where(pp => pp.ProcessNameWithExtension.IndexOf("winlogon.exe") != -1).Count());
 
         }
     }
@@ -87,17 +88,16 @@ namespace GetProcessList
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CloseHandle([In] IntPtr hObject);
 
-        private const uint TH32CS_SNAPPROCESS = 0x00000002;
-        private const uint MAXIMUM_ALLOWED = 0x2000000;
-
-        internal static int INVALID_HANDLE_VALUE = -1;
         [DllImport("kernel32.dll")]
         private static extern bool QueryFullProcessImageName(IntPtr hprocess, int dwFlags, StringBuilder lpExeName, out int size);
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         internal static extern bool OpenProcessToken(IntPtr h, int acc, ref IntPtr phtok);
-
         [DllImport("kernel32.dll", ExactSpelling = true)]
         internal static extern IntPtr GetCurrentProcess();
+
+        internal static int INVALID_HANDLE_VALUE = -1;
+        internal const uint TH32CS_SNAPPROCESS = 0x00000002;
+        internal const uint MAXIMUM_ALLOWED = 0x2000000;
 
         internal const int SE_PRIVILEGE_ENABLED = 0x00000002;
         internal const int TOKEN_QUERY = 0x00000008;
@@ -115,6 +115,7 @@ namespace GetProcessList
         internal static extern bool LookupPrivilegeValue(string host, string name, ref long pluid);
         [DllImport("advapi32.dll", ExactSpelling = true, SetLastError = true)]
         internal static extern bool AdjustTokenPrivileges(IntPtr htok, bool disall, ref TokPriv1Luid newst, int len, IntPtr prev, IntPtr relen);
+
         internal struct TokPriv1Luid
         {
             public int Count;
@@ -194,6 +195,41 @@ namespace GetProcessList
                 }
             } while (Process32Next(hSnap, ref procEntry));
             CloseHandle(hSnap);
+            return list;
+        }
+    }
+    public class ProcessWMI
+    {
+        public List<ProcessInfo> GetProcessList()
+        {
+            var list = new List<ProcessInfo>();
+            try
+            {
+                ManagementObjectSearcher searcher = new ManagementObjectSearcher("root\\CIMV2",
+                    "SELECT Caption, ExecutablePath, ProcessId, SessionId FROM Win32_Process");
+
+                foreach (ManagementObject queryObj in searcher.Get())
+                {
+                    try
+                    {
+                        var Caption = queryObj["Caption"].ToString();
+                        var ExecutablePath = queryObj["ExecutablePath"].ToString();
+
+                        if (ExecutablePath.Length != 0)
+                        {
+                            var pi = new ProcessInfo();
+                            pi.ProcessNameWithExtension = Caption;
+                            pi.ProcessPath = ExecutablePath;
+                            list.Add(pi);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.ToString());
+            }
             return list;
         }
     }
